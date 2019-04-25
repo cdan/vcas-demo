@@ -1,0 +1,145 @@
+---
+project: cdan-project
+kind: PIPELINE
+name: cdan-codestream-v2
+enabled: true
+concurrency: 10
+options: [
+  GIT_TRIGGER]
+input:
+  GIT_SERVER_URL: ''
+  GIT_BRANCH_NAME: ''
+  GIT_COMMIT_ID: ''
+  GIT_EVENT_TIMESTAMP: ''
+  GIT_EVENT_DESCRIPTION: ''
+  GIT_REPO_NAME: ''
+  GIT_EVENT_OWNER_NAME: ''
+  GIT_CHANGE_SUBJECT: ''
+starred:
+  input: GIT_COMMIT_ID
+ciWorkspace:
+  endpoint: ''
+  image: ''
+  registry: ''
+  path: ''
+  cache:
+  - ''
+stageOrder:
+- Build
+- Test
+stages:
+  Test:
+    taskOrder:
+    - Test Instance Deploy,Monitoring Dashboard Deploy
+    - UAT Gate
+    - Test Instance Cleanup,Monitoring Dashboard Rollback
+    tasks:
+      Test Instance Cleanup:
+        type: K8S
+        endpoints:
+          scm: cdan-github
+          kubernetesServer: cdan-cpks-endpoint
+        input:
+          filePath: k8s-deploy.yaml
+          commit: ''
+          namespace: ''
+          scmConstants: {
+            }
+          action: DELETE
+          filterByLabel: ''
+          continueOnConflict: false
+          timeout: '5'
+          yaml: ''
+          revision: n-1
+      Monitoring Dashboard Deploy:
+        type: REST
+        preCondition: 'false'
+        input:
+          headers: {
+            Accept: application/json,
+            Content-Type: application/json
+          }
+          action: get
+          url: https://longboard.wavefront.com/api/v2/dashboard/jm-vcas
+      Test Instance Deploy:
+        type: K8S
+        endpoints:
+          scm: cdan-github
+          kubernetesServer: cdan-cpks-endpoint
+        input:
+          filePath: k8s-deploy.yaml
+          commit: ''
+          namespace: ''
+          scmConstants: {
+            GIT_COMMIT_ID: '${input.GIT_COMMIT_ID}'
+          }
+          action: CREATE
+          filterByLabel: ''
+          continueOnConflict: false
+          timeout: '5'
+          yaml: ''
+          revision: n-1
+      UAT Gate:
+        type: UserOperation
+        input:
+          summary: CAS-Demo User Acceptance Test
+          pipelineName: ${name}
+          expirationInDays: 3
+          approverGroups: [
+            ]
+          approvers: [
+            dancheng@vmware.com]
+          description: 'Please verify and approve the release of this deployment. URL: ${Test.Test Instance
+            Deploy.output.response.loadBalancers.vcas-demo-svc.ingress[0].hostname}'
+          sendemail: false
+      Monitoring Dashboard Rollback:
+        type: REST
+        preCondition: 'false'
+        input:
+          headers: {
+            Accept: application/json,
+            Content-Type: application/json,
+            Authorization: Bearer cf7c59d3-a138-4315-9596-f97b1dfa54ff
+          }
+          action: delete
+          url: https://longboard.wavefront.com/api/v2/dashboard/jm-vcas
+  Build:
+    taskOrder:
+    - Application Build
+    - Application Build Cleanup
+    tasks:
+      Application Build Cleanup:
+        type: K8S
+        endpoints:
+          scm: cdan-github
+          kubernetesServer: cdan-cpks-endpoint
+        input:
+          filePath: kaniko.yaml
+          commit: ''
+          namespace: ''
+          scmConstants: {
+            }
+          action: DELETE
+          filterByLabel: ''
+          continueOnConflict: false
+          timeout: '5'
+          yaml: ''
+          revision: n-1
+      Application Build:
+        type: K8S
+        endpoints:
+          scm: cdan-github
+          kubernetesServer: cdan-cpks-endpoint
+        input:
+          filePath: kaniko.yaml
+          commit: ''
+          namespace: ''
+          scmConstants: {
+            GIT_COMMIT_ID: '${input.GIT_COMMIT_ID}'
+          }
+          action: CREATE
+          filterByLabel: ''
+          continueOnConflict: false
+          timeout: '5'
+          yaml: ''
+          revision: n-1
